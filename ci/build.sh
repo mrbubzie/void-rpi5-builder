@@ -42,7 +42,16 @@ scripts/config --set-str LOCALVERSION '-voidpi5test' -d LOCALVERSION_AUTO \
     -d DEBUG_INFO -e DEBUG_INFO_NONE -d WERROR -e BLK_DEV_INITRD \
     -m BT -m BT_HCIUART -e BT_HCIUART_BCM -m BRCMFMAC -e BRCMFMAC_SDIO
 make olddefconfig
-test "$(make -s kernelrelease)" = "$release"
+export LOCALVERSION=
+make -j"$(nproc)" prepare
+
+actual_release=$(make -s kernelrelease)
+if [[ "$actual_release" != "$release" ]]; then
+    printf 'Expected kernel release %s, got %s\n' "$release" "$actual_release" >&2
+    exit 1
+fi
+printf 'Building kernel release %s\n' "$actual_release"
+
 for setting in ARM64_16K_PAGES BLK_DEV_INITRD BT_HCIUART_BCM BRCMFMAC_SDIO; do
     grep -Fx "CONFIG_$setting=y" .config
 done
