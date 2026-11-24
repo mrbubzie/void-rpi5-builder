@@ -28,7 +28,7 @@ jobs:
             --mount "type=bind,source=$PWD/ci,target=/ci,readonly" \
             --mount "type=bind,source=$PWD/output,target=/output" \
             "ghcr.io/void-linux/void-${VOID_LIBC}-full:latest" \
-            /bin/bash /ci/build.sh
+        /bin/sh -ec 'xbps-install -Sy bash && exec bash /ci/build.sh'
 
       - name: Upload offline bundle
         uses: actions/upload-artifact@v4
