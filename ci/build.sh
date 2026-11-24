@@ -20,8 +20,10 @@ work=$(mktemp -d)
 bundle=$work/void-pi5-$version-$arch
 repo=$bundle/repository
 deps=$bundle/initramfs-dependencies
-mkdir -p "$repo" "$deps" "$work/src" "$work/dep-root"
-# Fetch the complete dependency closure into an empty package root.
+mkdir -p "$repo" "$deps" "$work/src" "$work/dep-root/var/db/xbps/keys"
+
+# Seed the temporary XBPS root with the container's trusted Void signing keys.
+cp -a /var/db/xbps/keys/. "$work/dep-root/var/db/xbps/keys/"
 xbps-install -S -D -y -i -r "$work/dep-root" -c "$deps" \
     -R https://repo-default.voidlinux.org/current/aarch64 dracut kmod
 xbps-rindex -a "$deps"/*.xbps
@@ -51,22 +53,26 @@ make -j"$(nproc)" Image.gz modules dtbs
 kernel=$work/kernel
 headers=$work/headers
 assets=$kernel/usr/lib/$release
-mkdir -p "$assets/overlays" "$kernel/usr/lib" "$headers/usr/src/$release" \
+mkdir -p "$assets/overlays" "$headers/usr/src/$release" \
     "$headers/usr/lib/modules/$release"
-# Linux installs into lib/modules by default. Stage on Void's canonical usr/lib.
+
+# Stage modules under Void's canonical /usr/lib/modules path.
 ln -s usr/lib "$kernel/lib"
 make INSTALL_MOD_PATH="$kernel" INSTALL_MOD_STRIP=1 modules_install
 rm "$kernel/lib"
-rm -f "$kernel/usr/lib/modules/$release/build" "$kernel/usr/lib/modules/$release/source"
+rm -f "$kernel/usr/lib/modules/$release/build" \
+    "$kernel/usr/lib/modules/$release/source"
 chmod 755 "$kernel/usr/lib/modules/$release"
 depmod -b "$kernel/usr" -F System.map "$release"
 install -m644 arch/arm64/boot/Image.gz "$assets/kernel.img"
 install -m644 System.map .config "$assets/"
 install -m644 arch/arm64/boot/dts/broadcom/bcm2712-rpi-5-b.dtb "$assets/"
-install -m644 arch/arm64/boot/dts/overlays/*.dtbo arch/arm64/boot/dts/overlays/README "$assets/overlays/"
-install -m644 arch/arm64/boot/dts/overlays/{overlay_map,hat_map}.dtb "$assets/overlays/"
+install -m644 arch/arm64/boot/dts/overlays/*.dtbo \
+    arch/arm64/boot/dts/overlays/README "$assets/overlays/"
+install -m644 arch/arm64/boot/dts/overlays/{overlay_map,hat_map}.dtb \
+    "$assets/overlays/"
 
-# Preserve generated headers and native Kbuild helper programs.
+# Preserve generated headers and native Kbuild helpers.
 header_tree=$headers/usr/src/$release
 rsync -a --exclude='.git*' --exclude='*.o' --exclude='*.cmd' \
     include scripts "$header_tree/"
@@ -77,7 +83,7 @@ cp -a .config Makefile Kbuild Module.symvers "$header_tree/"
 cp -a arch/arm64/Makefile "$header_tree/arch/arm64/"
 ln -s "../../../src/$release" "$headers/usr/lib/modules/$release/build"
 
-# A real external module build checks that the packaged headers are sufficient.
+# Verify the headers can build an external module.
 mkdir "$work/smoke"
 printf 'obj-m := smoke.o\n' > "$work/smoke/Makefile"
 cat > "$work/smoke/smoke.c" <<'MODULE'
@@ -95,11 +101,13 @@ xbps-create -A "$arch" -n "rpi5-kernel-test-headers-${version}_1" \
 xbps-rindex -a ./*.xbps
 xbps-query -i -R --repository="$repo" -p pkgver rpi5-kernel-test
 xbps-query -i -R --repository="$repo" -p pkgver rpi5-kernel-test-headers
+
 install -m755 /ci/install-on-pi.sh "$bundle/"
 install -m644 /ci/OFFLINE.md "$bundle/"
 printf 'Kernel commit: %s\nSource SHA-256: %s\nXBPS architecture: %s\n' \
     "$commit" "$archive_sha" "$arch" > "$bundle/BUILD-INFO.txt"
 cd "$bundle"
-sha256sum repository/* initramfs-dependencies/* install-on-pi.sh OFFLINE.md BUILD-INFO.txt > SHA256SUMS
+sha256sum repository/* initramfs-dependencies/* install-on-pi.sh \
+    OFFLINE.md BUILD-INFO.txt > SHA256SUMS
 cd "$work"
 tar -czf "/output/${bundle##*/}.tar.gz" "${bundle##*/}"
