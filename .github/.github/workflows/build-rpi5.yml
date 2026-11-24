@@ -1,0 +1,39 @@
+name: Build Void Pi 5 kernel 6.12.18
+
+on:
+  workflow_dispatch:
+    inputs:
+      libc:
+        description: "Pi userspace (aarch64 = glibc, aarch64-musl = musl)"
+        type: choice
+        default: glibc
+        options: [glibc, musl]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile and package in Void Linux
+        env:
+          VOID_LIBC: ${{ inputs.libc }}
+        run: |
+          mkdir -p output
+          docker run --rm --platform linux/arm64 \
+            --mount "type=bind,source=$PWD/ci,target=/ci,readonly" \
+            --mount "type=bind,source=$PWD/output,target=/output" \
+            "ghcr.io/void-linux/void-${VOID_LIBC}-full:latest" \
+            /bin/bash /ci/build.sh
+
+      - name: Upload offline bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: void-pi5-6.12.18-${{ inputs.libc }}-offline
+          path: output/void-pi5-6.12.18-*.tar.gz
+          if-no-files-found: error
+          compression-level: 0
